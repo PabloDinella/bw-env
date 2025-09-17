@@ -1,0 +1,5 @@
+- [ ] Scaffold Rust CLI project with Clap and Bitwarden logic
+- [ ] Add serde_json dependency for JSON parsing
+- [ ] Implement basic store/retrieve commands in main.rs
+- [ ] Add README with usage instructions
+- [ ] Ensure project builds successfully

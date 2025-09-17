@@ -1,0 +1,19 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# IDEs and editors
+/.idea/
+/.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+
+# Environment
+.env
+.env.*
+
+# Misc
+*.log
