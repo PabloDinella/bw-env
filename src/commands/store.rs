@@ -3,196 +3,32 @@ use std::process::Command;
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
+use crate::bw_commands::{sync_vault, ensure_folder_exists, create_item};
 
 // Configuration: Root folder name in Bitwarden
 const ROOT_FOLDER_NAME: &str = "bw-env";
 
 pub fn store_env(path: &str, item_name: &str) -> Result<()> {
     // Sync with Bitwarden server before storing
-    println!("Syncing with Bitwarden server...");
-    let sync_status = Command::new("bw")
-        .arg("sync")
-        .status()
-        .context("Failed to run bw sync")?;
-    
-    if !sync_status.success() {
-        anyhow::bail!("Failed to sync with Bitwarden server");
-    }
+    sync_vault()?;
     
     let env_content = fs::read_to_string(path)
         .with_context(|| format!("Failed to read .env file at {}", path))?;
     
     // Check for or create root folder
-    let root_folder_id = ensure_root_folder()?;
+    let root_folder_id = ensure_folder_exists(ROOT_FOLDER_NAME)?;
     
     // Get the desired folder structure from user
     let target_folder_id = get_target_folder(path, &root_folder_id)?;
     
-    // Get the item template
-    let template_output = Command::new("bw")
-        .args(["get", "template", "item"])
-        .output()
-        .context("Failed to get Bitwarden item template")?;
-    
-    if !template_output.status.success() {
-        anyhow::bail!("Failed to get Bitwarden item template");
-    }
-    
-    // Check if we got valid JSON output
-    let stdout_str = String::from_utf8(template_output.stdout)
-        .context("Failed to parse template output as UTF-8")?;
-    
-    if stdout_str.trim().is_empty() {
-        anyhow::bail!("Empty response from bw get template item - authentication may have failed");
-    }
-    
-    // Parse and modify the template
-    let mut template: serde_json::Value = serde_json::from_str(&stdout_str)
-        .context("Failed to parse template JSON")?;
-    
-    template["type"] = serde_json::Value::Number(2.into()); // Secure note type
-    template["secureNote"] = serde_json::json!({"type": 0}); // Initialize secureNote object
-    template["notes"] = serde_json::Value::String(env_content);
-    template["name"] = serde_json::Value::String(item_name.to_string());
-    template["folderId"] = serde_json::Value::String(target_folder_id);
-    
-    // Convert to JSON string
-    let json_str = serde_json::to_string(&template)
-        .context("Failed to serialize template")?;
-    
-    // Encode the JSON
-    let mut encode_child = Command::new("bw")
-        .arg("encode")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .context("Failed to spawn bw encode")?;
-    
-    {
-        let stdin = encode_child.stdin.as_mut().unwrap();
-        stdin.write_all(json_str.as_bytes())
-            .context("Failed to write to bw encode stdin")?;
-    }
-    
-    let encode_result = encode_child.wait_with_output()
-        .context("Failed to wait for bw encode")?;
-    
-    if !encode_result.status.success() {
-        anyhow::bail!("Failed to encode item");
-    }
-    
-    let encoded_data = String::from_utf8(encode_result.stdout)
-        .context("Failed to parse encoded data")?;
-    
-    // Create the item
-    let create_status = Command::new("bw")
-        .args(["create", "item", encoded_data.trim()])
-        .status()
-        .context("Failed to create Bitwarden item")?;
-    
-    if !create_status.success() {
-        anyhow::bail!("Bitwarden CLI failed to store item");
-    }
+    // Create the item using the new create_item function
+    create_item(item_name, &env_content, &target_folder_id)?;
     
     println!(".env file stored in Bitwarden as '{}'.", item_name);
     Ok(())
 }
 
-fn ensure_root_folder() -> Result<String> {
-    // First, try to find existing folder
-    let list_output = Command::new("bw")
-        .args(["list", "folders"])
-        .output()
-        .context("Failed to list Bitwarden folders")?;
-    
-    if !list_output.status.success() {
-        anyhow::bail!("Failed to list Bitwarden folders");
-    }
-    
-    let folders: Vec<serde_json::Value> = serde_json::from_slice(&list_output.stdout)
-        .context("Failed to parse folders JSON")?;
-    
-    // Check if root folder already exists
-    for folder in &folders {
-        if let Some(name) = folder["name"].as_str() {
-            if name == ROOT_FOLDER_NAME {
-                if let Some(id) = folder["id"].as_str() {
-                    println!("Found existing '{}' folder.", ROOT_FOLDER_NAME);
-                    return Ok(id.to_string());
-                }
-            }
-        }
-    }
-    
-    // Folder doesn't exist, create it
-    println!("Creating '{}' folder in Bitwarden...", ROOT_FOLDER_NAME);
-    
-    // Get folder template
-    let template_output = Command::new("bw")
-        .args(["get", "template", "folder"])
-        .output()
-        .context("Failed to get Bitwarden folder template")?;
-    
-    if !template_output.status.success() {
-        anyhow::bail!("Failed to get Bitwarden folder template");
-    }
-    
-    let stdout_str = String::from_utf8(template_output.stdout)
-        .context("Failed to parse folder template output as UTF-8")?;
-    
-    let mut template: serde_json::Value = serde_json::from_str(&stdout_str)
-        .context("Failed to parse folder template JSON")?;
-    
-    template["name"] = serde_json::Value::String(ROOT_FOLDER_NAME.to_string());
-    
-    let json_str = serde_json::to_string(&template)
-        .context("Failed to serialize folder template")?;
-    
-    // Encode the JSON
-    let mut encode_child = Command::new("bw")
-        .arg("encode")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .context("Failed to spawn bw encode for folder")?;
-    
-    {
-        let stdin = encode_child.stdin.as_mut().unwrap();
-        stdin.write_all(json_str.as_bytes())
-            .context("Failed to write to bw encode stdin for folder")?;
-    }
-    
-    let encode_result = encode_child.wait_with_output()
-        .context("Failed to wait for bw encode for folder")?;
-    
-    if !encode_result.status.success() {
-        anyhow::bail!("Failed to encode folder");
-    }
-    
-    let encoded_data = String::from_utf8(encode_result.stdout)
-        .context("Failed to parse encoded folder data")?;
-    
-    // Create the folder
-    let create_output = Command::new("bw")
-        .args(["create", "folder", encoded_data.trim()])
-        .output()
-        .context("Failed to create Bitwarden folder")?;
-    
-    if !create_output.status.success() {
-        anyhow::bail!("Bitwarden CLI failed to create folder");
-    }
-    
-    // Parse the created folder response to get the ID
-    let created_folder: serde_json::Value = serde_json::from_slice(&create_output.stdout)
-        .context("Failed to parse created folder JSON")?;
-    
-    if let Some(id) = created_folder["id"].as_str() {
-        println!("Created '{}' folder successfully.", ROOT_FOLDER_NAME);
-        Ok(id.to_string())
-    } else {
-        anyhow::bail!("Failed to get folder ID from created folder response");
-    }
-}
+
 
 fn get_target_folder(file_path: &str, root_folder_id: &str) -> Result<String> {
     let file_name = Path::new(file_path)
@@ -321,97 +157,8 @@ fn create_folder_structure(path: &str, root_folder_id: &str) -> Result<String> {
         current_path.push('/');
         current_path.push_str(folder_name);
         // Ensure this complete path exists as a folder
-        current_folder_id = ensure_subfolder_with_full_path(&current_path, &current_folder_id)?;
+        current_folder_id = ensure_folder_exists(&current_path)?;
     }
     Ok(current_folder_id)
 }
 
-fn ensure_subfolder_with_full_path(full_path: &str, _parent_folder_id: &str) -> Result<String> {
-    // List all folders and check if this subfolder exists
-    let list_output = Command::new("bw")
-        .args(["list", "folders"])
-        .output()
-        .context("Failed to list Bitwarden folders")?;
-    
-    if !list_output.status.success() {
-        anyhow::bail!("Failed to list Bitwarden folders");
-    }
-    
-    let folders: Vec<serde_json::Value> = serde_json::from_slice(&list_output.stdout)
-        .context("Failed to parse folders JSON")?;
-    
-    // Check if folder with this exact full path already exists
-    for folder in &folders {
-        if let (Some(name), Some(id)) = (folder["name"].as_str(), folder["id"].as_str()) {
-            if name == full_path {
-                return Ok(id.to_string());
-            }
-        }
-    }
-    
-    // Folder doesn't exist, create it
-    println!("Creating folder '{}'...", full_path);
-    
-    let template_output = Command::new("bw")
-        .args(["get", "template", "folder"])
-        .output()
-        .context("Failed to get Bitwarden folder template")?;
-    
-    if !template_output.status.success() {
-        anyhow::bail!("Failed to get Bitwarden folder template");
-    }
-    
-    let stdout_str = String::from_utf8(template_output.stdout)
-        .context("Failed to parse folder template output as UTF-8")?;
-    
-    let mut template: serde_json::Value = serde_json::from_str(&stdout_str)
-        .context("Failed to parse folder template JSON")?;
-    
-    // Use the full path as the folder name
-    template["name"] = serde_json::Value::String(full_path.to_string());
-    
-    let json_str = serde_json::to_string(&template)
-        .context("Failed to serialize folder template")?;
-    
-    // Encode and create the folder
-    let mut encode_child = Command::new("bw")
-        .arg("encode")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .context("Failed to spawn bw encode for folder")?;
-    
-    {
-        let stdin = encode_child.stdin.as_mut().unwrap();
-        stdin.write_all(json_str.as_bytes())
-            .context("Failed to write to bw encode stdin for folder")?;
-    }
-    
-    let encode_result = encode_child.wait_with_output()
-        .context("Failed to wait for bw encode for folder")?;
-    
-    if !encode_result.status.success() {
-        anyhow::bail!("Failed to encode folder");
-    }
-    
-    let encoded_data = String::from_utf8(encode_result.stdout)
-        .context("Failed to parse encoded folder data")?;
-    
-    let create_output = Command::new("bw")
-        .args(["create", "folder", encoded_data.trim()])
-        .output()
-        .context("Failed to create Bitwarden folder")?;
-    
-    if !create_output.status.success() {
-        anyhow::bail!("Bitwarden CLI failed to create folder");
-    }
-    
-    let created_folder: serde_json::Value = serde_json::from_slice(&create_output.stdout)
-        .context("Failed to parse created folder JSON")?;
-    
-    if let Some(id) = created_folder["id"].as_str() {
-        Ok(id.to_string())
-    } else {
-        anyhow::bail!("Failed to get folder ID from created folder response");
-    }
-}

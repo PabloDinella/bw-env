@@ -1,6 +1,7 @@
 mod auth;
 mod commands;
 mod cli;
+mod bw_commands;
 
 use clap::Parser;
 use anyhow::Result;
