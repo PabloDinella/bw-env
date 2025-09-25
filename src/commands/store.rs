@@ -4,12 +4,26 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
+// Configuration: Root folder name in Bitwarden
+const ROOT_FOLDER_NAME: &str = "bw-env";
+
 pub fn store_env(path: &str, item_name: &str) -> Result<()> {
+    // Sync with Bitwarden server before storing
+    println!("Syncing with Bitwarden server...");
+    let sync_status = Command::new("bw")
+        .arg("sync")
+        .status()
+        .context("Failed to run bw sync")?;
+    
+    if !sync_status.success() {
+        anyhow::bail!("Failed to sync with Bitwarden server");
+    }
+    
     let env_content = fs::read_to_string(path)
         .with_context(|| format!("Failed to read .env file at {}", path))?;
     
-    // Check for or create "dotenv files" folder
-    let root_folder_id = ensure_dotenv_folder()?;
+    // Check for or create root folder
+    let root_folder_id = ensure_root_folder()?;
     
     // Get the desired folder structure from user
     let target_folder_id = get_target_folder(path, &root_folder_id)?;
@@ -84,9 +98,7 @@ pub fn store_env(path: &str, item_name: &str) -> Result<()> {
     Ok(())
 }
 
-fn ensure_dotenv_folder() -> Result<String> {
-    const FOLDER_NAME: &str = "dotenv files";
-    
+fn ensure_root_folder() -> Result<String> {
     // First, try to find existing folder
     let list_output = Command::new("bw")
         .args(["list", "folders"])
@@ -100,12 +112,12 @@ fn ensure_dotenv_folder() -> Result<String> {
     let folders: Vec<serde_json::Value> = serde_json::from_slice(&list_output.stdout)
         .context("Failed to parse folders JSON")?;
     
-    // Check if "dotenv files" folder already exists
+    // Check if root folder already exists
     for folder in &folders {
         if let Some(name) = folder["name"].as_str() {
-            if name == FOLDER_NAME {
+            if name == ROOT_FOLDER_NAME {
                 if let Some(id) = folder["id"].as_str() {
-                    println!("Found existing '{}' folder.", FOLDER_NAME);
+                    println!("Found existing '{}' folder.", ROOT_FOLDER_NAME);
                     return Ok(id.to_string());
                 }
             }
@@ -113,7 +125,7 @@ fn ensure_dotenv_folder() -> Result<String> {
     }
     
     // Folder doesn't exist, create it
-    println!("Creating '{}' folder in Bitwarden...", FOLDER_NAME);
+    println!("Creating '{}' folder in Bitwarden...", ROOT_FOLDER_NAME);
     
     // Get folder template
     let template_output = Command::new("bw")
@@ -131,7 +143,7 @@ fn ensure_dotenv_folder() -> Result<String> {
     let mut template: serde_json::Value = serde_json::from_str(&stdout_str)
         .context("Failed to parse folder template JSON")?;
     
-    template["name"] = serde_json::Value::String(FOLDER_NAME.to_string());
+    template["name"] = serde_json::Value::String(ROOT_FOLDER_NAME.to_string());
     
     let json_str = serde_json::to_string(&template)
         .context("Failed to serialize folder template")?;
@@ -175,7 +187,7 @@ fn ensure_dotenv_folder() -> Result<String> {
         .context("Failed to parse created folder JSON")?;
     
     if let Some(id) = created_folder["id"].as_str() {
-        println!("Created '{}' folder successfully.", FOLDER_NAME);
+        println!("Created '{}' folder successfully.", ROOT_FOLDER_NAME);
         Ok(id.to_string())
     } else {
         anyhow::bail!("Failed to get folder ID from created folder response");
@@ -199,7 +211,7 @@ fn get_target_folder(file_path: &str, root_folder_id: &str) -> Result<String> {
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown");
-    let dir_option = format!("dotenv files/{}/{}", dir_name, file_name);
+    let dir_option = format!("{}/{}/{}", ROOT_FOLDER_NAME, dir_name, file_name);
     
     // Display options to user
     println!("\nChoose the folder structure for storing '{}':", file_name);
@@ -233,7 +245,7 @@ fn get_target_folder(file_path: &str, root_folder_id: &str) -> Result<String> {
     } else if choice == dir_option_num {
         dir_option
     } else if choice == custom_option_num {
-        print!("Enter custom path (starting with 'dotenv files/'): ");
+        print!("Enter custom path (starting with '{}/''): ", ROOT_FOLDER_NAME);
         io::stdout().flush().unwrap();
         let mut custom_path = String::new();
         io::stdin().read_line(&mut custom_path)
@@ -242,10 +254,10 @@ fn get_target_folder(file_path: &str, root_folder_id: &str) -> Result<String> {
     } else {
         anyhow::bail!("Invalid choice");
     };
-    
-    // Ensure path starts with "dotenv files"
-    if !selected_path.starts_with("dotenv files") {
-        anyhow::bail!("Path must start with 'dotenv files'");
+
+    // Ensure path starts with root folder name
+    if !selected_path.starts_with(ROOT_FOLDER_NAME) {
+        anyhow::bail!("Path must start with '{}'", ROOT_FOLDER_NAME);
     }
     
     // Create the folder structure and return the final folder ID
@@ -283,35 +295,38 @@ fn get_git_repo_path(current_dir: &Path, file_name: &str) -> Option<String> {
     // Split into owner/repo
     let parts: Vec<&str> = repo_info.split('/').collect();
     if parts.len() == 2 {
-        Some(format!("dotenv files/{}/{}/{}", parts[0], parts[1], file_name))
+        Some(format!("{}/{}/{}/{}", ROOT_FOLDER_NAME, parts[0], parts[1], file_name))
     } else {
         None
     }
 }
 
 fn create_folder_structure(path: &str, root_folder_id: &str) -> Result<String> {
-    // Check if path starts with "dotenv files/"
-    if !path.starts_with("dotenv files/") {
-        anyhow::bail!("Invalid path format: must start with 'dotenv files/'");
+    // Check if path starts with root folder name
+    let root_prefix = format!("{}/", ROOT_FOLDER_NAME);
+    if !path.starts_with(&root_prefix) {
+        anyhow::bail!("Invalid path format: must start with '{}'", root_prefix);
     }
     
-    // Remove "dotenv files/" prefix and split the remaining path
-    let remaining_path = &path[13..]; // "dotenv files/" is 13 characters
-    let parts: Vec<&str> = remaining_path.split('/').collect();
+    // Remove root folder prefix and split the remaining path
+    let remaining_path = &path[root_prefix.len()..];
+    let parts: Vec<&str> = remaining_path.split('/').filter(|s| !s.is_empty()).collect();
     
+    // Start with the existing root folder ID
+    let mut current_path = String::from(ROOT_FOLDER_NAME);
     let mut current_folder_id = root_folder_id.to_string();
-    
-    // Create each folder in the path, excluding the last part (filename)
+
+    // Create each folder in the path hierarchy, excluding the last part (filename)
     for folder_name in &parts[..parts.len().saturating_sub(1)] {
-        if !folder_name.is_empty() {
-            current_folder_id = ensure_subfolder(folder_name, &current_folder_id)?;
-        }
+        current_path.push('/');
+        current_path.push_str(folder_name);
+        // Ensure this complete path exists as a folder
+        current_folder_id = ensure_subfolder_with_full_path(&current_path, &current_folder_id)?;
     }
-    
     Ok(current_folder_id)
 }
 
-fn ensure_subfolder(folder_name: &str, parent_folder_id: &str) -> Result<String> {
+fn ensure_subfolder_with_full_path(full_path: &str, _parent_folder_id: &str) -> Result<String> {
     // List all folders and check if this subfolder exists
     let list_output = Command::new("bw")
         .args(["list", "folders"])
@@ -325,19 +340,17 @@ fn ensure_subfolder(folder_name: &str, parent_folder_id: &str) -> Result<String>
     let folders: Vec<serde_json::Value> = serde_json::from_slice(&list_output.stdout)
         .context("Failed to parse folders JSON")?;
     
-    // Check if subfolder already exists with the same name and parent
+    // Check if folder with this exact full path already exists
     for folder in &folders {
         if let (Some(name), Some(id)) = (folder["name"].as_str(), folder["id"].as_str()) {
-            // Bitwarden doesn't store parent folder info in folder objects,
-            // so we'll just check by name for now
-            if name == folder_name {
+            if name == full_path {
                 return Ok(id.to_string());
             }
         }
     }
     
     // Folder doesn't exist, create it
-    println!("Creating folder '{}'...", folder_name);
+    println!("Creating folder '{}'...", full_path);
     
     let template_output = Command::new("bw")
         .args(["get", "template", "folder"])
@@ -354,7 +367,8 @@ fn ensure_subfolder(folder_name: &str, parent_folder_id: &str) -> Result<String>
     let mut template: serde_json::Value = serde_json::from_str(&stdout_str)
         .context("Failed to parse folder template JSON")?;
     
-    template["name"] = serde_json::Value::String(folder_name.to_string());
+    // Use the full path as the folder name
+    template["name"] = serde_json::Value::String(full_path.to_string());
     
     let json_str = serde_json::to_string(&template)
         .context("Failed to serialize folder template")?;

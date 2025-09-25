@@ -3,6 +3,17 @@ use std::process::Command;
 use std::fs;
 
 pub fn retrieve_env(item_name: &str, output: &str) -> Result<()> {
+    // Sync with Bitwarden server before retrieving
+    println!("Syncing with Bitwarden server...");
+    let sync_status = Command::new("bw")
+        .arg("sync")
+        .status()
+        .context("Failed to run bw sync")?;
+    
+    if !sync_status.success() {
+        anyhow::bail!("Failed to sync with Bitwarden server");
+    }
+    
     let output_json = Command::new("bw")
         .args(["get", "item", item_name])
         .output()
