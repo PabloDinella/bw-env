@@ -1,14 +1,14 @@
 use anyhow::{Result, Context};
 use std::process::Command;
 use std::io::Write;
-use crate::bw_commands::get_template::get_item_template;
+use crate::bw_commands::get_template::{get_template, TemplateType};
 
 /// Create a secure note item in Bitwarden
 pub fn create_item(name: &str, notes: &str, folder_id: &str) -> Result<String> {
     println!("Creating item '{}'...", name);
     
     // Get the item template
-    let mut template = get_item_template()?;
+    let mut template = get_template(TemplateType::Item)?;
     
     // Configure the template for a secure note
     template["type"] = serde_json::Value::Number(2.into()); // Secure note type
@@ -72,7 +72,7 @@ pub fn create_login_item(name: &str, username: &str, password: &str, folder_id: 
     println!("Creating login item '{}'...", name);
     
     // Get the item template
-    let mut template = get_item_template()?;
+    let mut template = get_template(TemplateType::Item)?;
     
     // Configure the template for a login
     template["type"] = serde_json::Value::Number(1.into()); // Login type

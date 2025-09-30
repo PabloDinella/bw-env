@@ -1,14 +1,14 @@
 use anyhow::{Result, Context};
 use std::process::Command;
 use std::io::Write;
-use crate::bw_commands::get_template::get_folder_template;
+use crate::bw_commands::get_template::{get_template, TemplateType};
 
 /// Create a folder in Bitwarden with the given name
 pub fn create_folder(name: &str) -> Result<String> {
     println!("Creating folder '{}'...", name);
     
     // Get the folder template
-    let mut template = get_folder_template()?;
+    let mut template = get_template(TemplateType::Folder)?;
     
     // Set the folder name
     template["name"] = serde_json::Value::String(name.to_string());
