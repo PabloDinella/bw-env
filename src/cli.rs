@@ -21,4 +21,6 @@ pub enum Commands {
         #[arg(long)]
         output: String,
     },
+    /// List all .env files stored in Bitwarden
+    List,
 }
