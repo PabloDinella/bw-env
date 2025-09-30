@@ -9,42 +9,150 @@ use crate::bw_commands::{sync_vault, ensure_folder_exists, create_item};
 const ROOT_FOLDER_NAME: &str = "bw-env";
 
 /// Generate an item name from the file path
-fn generate_item_name(file_path: &str) -> Result<String> {
+fn generate_item_name(file_path: &str, use_full_path: bool) -> Result<String> {
     let path = Path::new(file_path);
-    let file_name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("env-file");
     
-    Ok(file_name.to_string())
+    if use_full_path {
+        // Just use the filename as before when using folder structure
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("env-file");
+        Ok(file_name.to_string())
+    } else {
+        // Use the full path relative to current directory as item name
+        let current_dir = std::env::current_dir()
+            .context("Failed to get current directory")?;
+        
+        let relative_path = if path.is_absolute() {
+            path.strip_prefix(&current_dir)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .to_string()
+        } else {
+            file_path.to_string()
+        };
+        
+        // Keep slashes as they are - Bitwarden supports them in item names
+        Ok(relative_path)
+    }
 }
 
-
-
-pub fn store_env(path: &str) -> Result<()> {
+pub fn store_env(path: &str, create_folder_structure: bool) -> Result<()> {
     // Sync with Bitwarden server before storing
     sync_vault()?;
     
     let env_content = fs::read_to_string(path)
         .with_context(|| format!("Failed to read .env file at {}", path))?;
     
-    // Auto-generate item name from file path
-    let item_name = generate_item_name(path)?;
-    
-    // Check for or create root folder
+    // Check for or create root folder (still need this as a container)
     let root_folder_id = ensure_folder_exists(ROOT_FOLDER_NAME)?;
     
-    // Get the desired folder structure from user
-    let target_folder_id = get_target_folder(path, &root_folder_id)?;
+    let item_name = if create_folder_structure {
+        // Use the old behavior with actual folder structure
+        let filename = generate_item_name(path, true)?;
+        
+        // Get the desired folder structure from user and create folders
+        let target_folder_id = get_target_folder(path, &root_folder_id)?;
+        
+        // Create the item in the folder structure
+        create_item(&filename, &env_content, &target_folder_id)?;
+        
+        println!(".env file stored in Bitwarden as '{}' in folder structure.", filename);
+        return Ok(());
+    } else {
+        // New behavior: prompt for path structure but put it in item name
+        get_item_name_with_path(path)?
+    };
     
-    // Create the item using the new create_item function
-    create_item(&item_name, &env_content, &target_folder_id)?;
+    // Create the item directly in the root folder with the chosen path in the name
+    create_item(&item_name, &env_content, &root_folder_id)?;
     
     println!(".env file stored in Bitwarden as '{}'.", item_name);
     Ok(())
 }
 
 
+
+fn get_item_name_with_path(file_path: &str) -> Result<String> {
+    let file_name = Path::new(file_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown");
+    
+    let current_dir = std::env::current_dir()
+        .context("Failed to get current directory")?;
+    
+    // Option 1: Git repository path (if applicable)
+    let git_option = get_git_repo_path(&current_dir, file_name);
+    
+    // Option 2: Directory name path
+    let dir_name = current_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown");
+    let dir_option = format!("{}/{}/{}", ROOT_FOLDER_NAME, dir_name, file_name);
+    
+    // Option 3: Just the filename
+    let filename_option = file_name.to_string();
+    
+    // Display options to user
+    println!("\nChoose the path structure for the item name:");
+    
+    let mut option_num = 1;
+    
+    if let Some(ref git_path) = git_option {
+        println!("{}. {} (Git repository structure)", option_num, git_path);
+        option_num += 1;
+    }
+    
+    println!("{}. {} (Directory name)", option_num, dir_option);
+    let dir_option_num = option_num;
+    option_num += 1;
+    
+    println!("{}. {} (Just filename)", option_num, filename_option);
+    let filename_option_num = option_num;
+    option_num += 1;
+    
+    println!("{}. Custom path (you type the path)", option_num);
+    let custom_option_num = option_num;
+    
+    print!("\nEnter your choice: ");
+    io::stdout().flush().unwrap();
+    
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)
+        .context("Failed to read user input")?;
+    
+    let choice: u32 = input.trim().parse()
+        .context("Invalid choice, please enter a number")?;
+    
+    let selected_name = if git_option.is_some() && choice == 1 {
+        // Remove the ROOT_FOLDER_NAME prefix for the item name
+        let git_path = git_option.unwrap();
+        git_path.strip_prefix(&format!("{}/", ROOT_FOLDER_NAME))
+            .unwrap_or(&git_path)
+            .to_string()
+    } else if choice == dir_option_num {
+        // Remove the ROOT_FOLDER_NAME prefix for the item name
+        dir_option.strip_prefix(&format!("{}/", ROOT_FOLDER_NAME))
+            .unwrap_or(&dir_option)
+            .to_string()
+    } else if choice == filename_option_num {
+        filename_option
+    } else if choice == custom_option_num {
+        print!("Enter custom path (without '{}/' prefix): ", ROOT_FOLDER_NAME);
+        io::stdout().flush().unwrap();
+        let mut custom_path = String::new();
+        io::stdin().read_line(&mut custom_path)
+            .context("Failed to read custom path")?;
+        custom_path.trim().to_string()
+    } else {
+        anyhow::bail!("Invalid choice");
+    };
+
+    Ok(selected_name)
+}
 
 fn get_target_folder(file_path: &str, root_folder_id: &str) -> Result<String> {
     let file_name = Path::new(file_path)
