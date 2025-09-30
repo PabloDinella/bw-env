@@ -8,16 +8,15 @@ A Rust CLI tool to store and retrieve `.env` files in Bitwarden using the Bitwar
 
 ## Requirements
 - [Bitwarden CLI](https://bitwarden.com/help/cli/) (`bw`) must be installed and logged in
-- Rust toolchain (install via [rustup](https://rustup.rs/))
 
 ## Usage
 
 ```sh
-# Store a .env file
-bw-env store path/to/.env --item-name "My Project ENV"
+# Store a .env file (item name will be the filename, e.g., ".env")
+bw-env store path/to/.env
 
-# Retrieve a .env file
-bw-env retrieve --item-name "My Project ENV" --output path/to/.env
+# Retrieve a .env file (item name will be the filename, e.g., ".env")
+bw-env retrieve --output path/to/.env
 ```
 
 ## Development

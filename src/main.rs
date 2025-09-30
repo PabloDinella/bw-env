@@ -16,8 +16,8 @@ fn main() -> Result<()> {
     unlock_vault()?;
     
     match cli.command {
-        Commands::Store { path, item_name } => store_env(&path, &item_name)?,
-        Commands::Retrieve { item_name, output } => retrieve_env(&item_name, &output)?,
+        Commands::Store { path } => store_env(&path)?,
+        Commands::Retrieve { output } => retrieve_env(&output)?,
     }
     Ok(())
 }

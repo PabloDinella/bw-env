@@ -14,15 +14,9 @@ pub enum Commands {
     Store {
         /// Path to the .env file
         path: String,
-        /// Bitwarden item name
-        #[arg(long)]
-        item_name: String,
     },
     /// Retrieve a .env file from Bitwarden
     Retrieve {
-        /// Bitwarden item name
-        #[arg(long)]
-        item_name: String,
         /// Output path for the .env file
         #[arg(long)]
         output: String,

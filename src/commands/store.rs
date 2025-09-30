@@ -8,12 +8,28 @@ use crate::bw_commands::{sync_vault, ensure_folder_exists, create_item};
 // Configuration: Root folder name in Bitwarden
 const ROOT_FOLDER_NAME: &str = "bw-env";
 
-pub fn store_env(path: &str, item_name: &str) -> Result<()> {
+/// Generate an item name from the file path
+fn generate_item_name(file_path: &str) -> Result<String> {
+    let path = Path::new(file_path);
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("env-file");
+    
+    Ok(file_name.to_string())
+}
+
+
+
+pub fn store_env(path: &str) -> Result<()> {
     // Sync with Bitwarden server before storing
     sync_vault()?;
     
     let env_content = fs::read_to_string(path)
         .with_context(|| format!("Failed to read .env file at {}", path))?;
+    
+    // Auto-generate item name from file path
+    let item_name = generate_item_name(path)?;
     
     // Check for or create root folder
     let root_folder_id = ensure_folder_exists(ROOT_FOLDER_NAME)?;
@@ -22,7 +38,7 @@ pub fn store_env(path: &str, item_name: &str) -> Result<()> {
     let target_folder_id = get_target_folder(path, &root_folder_id)?;
     
     // Create the item using the new create_item function
-    create_item(item_name, &env_content, &target_folder_id)?;
+    create_item(&item_name, &env_content, &target_folder_id)?;
     
     println!(".env file stored in Bitwarden as '{}'.", item_name);
     Ok(())
