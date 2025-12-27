@@ -17,7 +17,7 @@ fn main() -> Result<()> {
     
     match cli.command {
         Commands::Store { path } => store_env(&path)?,
-        Commands::Retrieve { output } => retrieve_env(&output)?,
+        Commands::Retrieve => retrieve_env()?,
         Commands::List => list_env_items()?,
     }
     Ok(())

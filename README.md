@@ -1,12 +1,15 @@
 # Bitwarden .env CLI Wrapper
 
-A Rust CLI tool to store and retrieve `.env` files in Bitwarden using the Bitwarden CLI (`bw`).
+`bw-env` makes it easy to store and retrieve `.env` files in Bitwarden using the Bitwarden CLI (`bw`).
+
+Bitwarden offer solutions specifically for storing secrets and env vars. This tools aims to be a simpler alternative that uses the secure notes from the free plan, with a no-brainer interface. Just run `bw-env store <path-to-dotenv-file>` or `bw-env retrieve` on your project's directory and you are done.
 
 ## Features
 - Store `.env` files in Bitwarden as a secure note in a path like `your-repo-name/path/to/.env` (or custom path)
 - Retrieve `.env` files easily with automatic path-based lookup
 - List all stored `.env` files
 - Automatic Bitwarden vault synchronization
+- No need for Bitwarden paid plans, since we are using the basic free feature of secure notes
 
 ## Requirements
 - [Bitwarden CLI](https://bitwarden.com/help/cli/) (`bw`) must be installed and logged in

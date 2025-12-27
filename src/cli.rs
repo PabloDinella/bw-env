@@ -16,11 +16,7 @@ pub enum Commands {
         path: String,
     },
     /// Retrieve a .env file from Bitwarden
-    Retrieve {
-        /// Output path for the .env file
-        #[arg(long)]
-        output: String,
-    },
+    Retrieve,
     /// List all .env files stored in Bitwarden
     List,
 }
