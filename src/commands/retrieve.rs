@@ -4,17 +4,12 @@ use std::fs;
 use std::path::Path;
 use crate::bw_commands::sync_vault;
 
-pub fn retrieve_env(output: &str, create_folder_structure: bool) -> Result<()> {
+pub fn retrieve_env(output: &str) -> Result<()> {
     // Sync with Bitwarden server before retrieving
     sync_vault()?;
     
-    let item_name = if create_folder_structure {
-        // Use the old behavior - just the filename
-        generate_item_name_from_output(output)?
-    } else {
-        // New behavior - use full path as stored
-        generate_full_path_item_name(output)?
-    };
+    // Use full path as stored
+    let item_name = generate_full_path_item_name(output)?;
     
     let output_json = Command::new("bw")
         .args(["get", "item", &item_name])
@@ -34,17 +29,6 @@ pub fn retrieve_env(output: &str, create_folder_structure: bool) -> Result<()> {
     
     println!(".env file retrieved from Bitwarden and saved to '{}'.", output);
     Ok(())
-}
-
-/// Generate an item name from the output file path (just filename)
-fn generate_item_name_from_output(file_path: &str) -> Result<String> {
-    let path = Path::new(file_path);
-    let file_name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("env-file");
-    
-    Ok(file_name.to_string())
 }
 
 /// Generate an item name from the full path (matches store behavior)

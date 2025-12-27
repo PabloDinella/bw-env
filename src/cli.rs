@@ -14,18 +14,12 @@ pub enum Commands {
     Store {
         /// Path to the .env file
         path: String,
-        /// Create folder structure in Bitwarden (default: store path in item name)
-        #[arg(long)]
-        create_folder_structure: bool,
     },
     /// Retrieve a .env file from Bitwarden
     Retrieve {
         /// Output path for the .env file
         #[arg(long)]
         output: String,
-        /// Use folder structure for item lookup (default: use filename only)
-        #[arg(long)]
-        create_folder_structure: bool,
     },
     /// List all .env files stored in Bitwarden
     List,

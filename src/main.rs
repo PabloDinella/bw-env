@@ -16,8 +16,8 @@ fn main() -> Result<()> {
     unlock_vault()?;
     
     match cli.command {
-        Commands::Store { path, create_folder_structure } => store_env(&path, create_folder_structure)?,
-        Commands::Retrieve { output, create_folder_structure } => retrieve_env(&output, create_folder_structure)?,
+        Commands::Store { path } => store_env(&path)?,
+        Commands::Retrieve { output } => retrieve_env(&output)?,
         Commands::List => list_env_items()?,
     }
     Ok(())
