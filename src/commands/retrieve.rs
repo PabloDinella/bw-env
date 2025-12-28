@@ -34,16 +34,14 @@ pub fn retrieve_env() -> Result<()> {
             println!("Found items matching {}, select what to download:\n", dir);
 
             if context_indices.len() >= 2 {
-                let mut seen: HashSet<String> = HashSet::new();
-                let mut segments: Vec<String> = Vec::new();
-                for &idx in context_indices {
-                    if let Some(name) = items[idx]["name"].as_str() {
-                        let seg = name.rsplit(['/', '\\']).next().unwrap_or(name).to_string();
-                        if seen.insert(seg.clone()) {
-                            segments.push(seg);
-                        }
-                    }
-                }
+                let mut seen = HashSet::new();
+                let segments: Vec<String> = context_indices
+                    .iter()
+                    .filter_map(|&idx| items[idx]["name"].as_str())
+                    .map(|name| name.rsplit(['/', '\\']).next().unwrap_or(name).to_string())
+                    .filter(|seg| seen.insert(seg.clone()))
+                    .collect();
+
                 let label = format!("Download everything ({})", segments.join(", "));
                 options.push(OptionEntry {
                     label: label.clone(),
@@ -145,76 +143,55 @@ enum SelectionKind {
 }
 
 fn build_options(items: &[serde_json::Value]) -> Vec<OptionEntry> {
-    let mut options = Vec::new();
-    let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
+    let groups = group_items_by_dir(items);
 
-    // Build directory -> item indices map
-    for (idx, item) in items.iter().enumerate() {
-        if let Some(name) = item["name"].as_str() {
-            if let Some(dir) = item_dir(name) {
-                groups.entry(dir).or_default().push(idx);
-            }
-        }
-    }
+    // Determine grouped dir order by first appearance and with >1 items
+    let mut seen = HashSet::new();
+    let grouped_dirs_order: Vec<String> = items
+        .iter()
+        .filter_map(|item| item["name"].as_str().and_then(item_dir))
+        .filter(|dir| groups.get(dir).map_or(false, |v| v.len() > 1))
+        .filter(|dir| seen.insert(dir.clone()))
+        .collect();
 
-    // Determine order of grouped directories as they first appear
-    let mut grouped_dirs_order: Vec<String> = Vec::new();
-    for item in items.iter() {
-        if let Some(name) = item["name"].as_str() {
-            if let Some(dir) = item_dir(name) {
-                if let Some(indices) = groups.get(&dir) {
-                    if indices.len() > 1 && !grouped_dirs_order.contains(&dir) {
-                        grouped_dirs_order.push(dir);
-                    }
-                }
-            }
-        }
-    }
+    // Indices that belong to multi-item groups
+    let grouped_indices: HashSet<usize> = grouped_dirs_order
+        .iter()
+        .flat_map(|dir| groups.get(dir).into_iter().flat_map(|v| v.iter().cloned()))
+        .collect();
 
-    // First, add each group entry followed by its nested single items
-    for dir in grouped_dirs_order.iter() {
+    // Build options: groups first, then nested singles, then lone singles
+    let mut options: Vec<OptionEntry> = Vec::new();
+
+    // Groups with nested
+    options.extend(grouped_dirs_order.iter().flat_map(|dir| {
         let indices = groups.get(dir).cloned().unwrap_or_default();
-        let label = format!("{}/* ({} items)", dir, indices.len());
-        options.push(OptionEntry {
-            label,
+        let mut entries = Vec::with_capacity(indices.len() + 1);
+        entries.push(OptionEntry {
+            label: format!("{}/* ({} items)", dir, indices.len()),
             kind: SelectionKind::Group(indices.clone()),
         });
-
-        for idx in indices {
+        entries.extend(indices.into_iter().map(|idx| {
             let name = items[idx]["name"].as_str().unwrap_or("(unnamed)");
-            options.push(OptionEntry {
+            OptionEntry {
                 label: format!("  - {}", name),
                 kind: SelectionKind::Single(idx),
-            });
-        }
-    }
-
-    // Then, add singles that are not part of a multi-item group
-    for (idx, item) in items.iter().enumerate() {
-        let name = item["name"].as_str().unwrap_or("(unnamed)");
-        match item_dir(name) {
-            Some(dir) => {
-                if let Some(indices) = groups.get(&dir) {
-                    if indices.len() == 1 {
-                        options.push(OptionEntry {
-                            label: name.to_string(),
-                            kind: SelectionKind::Single(idx),
-                        });
-                    }
-                } else {
-                    // Shouldn't happen: dir present but not in groups
-                    options.push(OptionEntry {
-                        label: name.to_string(),
-                        kind: SelectionKind::Single(idx),
-                    });
-                }
             }
-            None => options.push(OptionEntry {
-                label: name.to_string(),
+        }));
+        entries
+    }));
+
+    // Singles not part of any multi-item group
+    options.extend(
+        items
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| !grouped_indices.contains(idx))
+            .map(|(idx, item)| OptionEntry {
+                label: item["name"].as_str().unwrap_or("(unnamed)").to_string(),
                 kind: SelectionKind::Single(idx),
             }),
-        }
-    }
+    );
 
     options
 }
@@ -251,15 +228,15 @@ fn download_item(item: &serde_json::Value) -> Result<PathBuf> {
 }
 
 fn group_items_by_dir(items: &[serde_json::Value]) -> HashMap<String, Vec<usize>> {
-    let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
-    for (idx, item) in items.iter().enumerate() {
-        if let Some(name) = item["name"].as_str() {
-            if let Some(dir) = item_dir(name) {
-                groups.entry(dir).or_default().push(idx);
+    items
+        .iter()
+        .enumerate()
+        .fold(HashMap::new(), |mut acc, (idx, item)| {
+            if let Some(dir) = item["name"].as_str().and_then(item_dir) {
+                acc.entry(dir).or_default().push(idx);
             }
-        }
-    }
-    groups
+            acc
+        })
 }
 
 fn current_context_dir() -> Option<String> {
