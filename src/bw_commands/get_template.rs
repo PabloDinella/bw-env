@@ -1,5 +1,5 @@
 use anyhow::{Result, Context};
-use std::process::Command;
+use crate::auth::run_bw_command;
 
 #[derive(Debug, Clone, Copy)]
 pub enum TemplateType {
@@ -20,9 +20,7 @@ impl TemplateType {
 pub fn get_template(template_type: TemplateType) -> Result<serde_json::Value> {
     let template_name = template_type.as_str();
     
-    let template_output = Command::new("bw")
-        .args(["get", "template", template_name])
-        .output()
+    let template_output = run_bw_command(&["get", "template", template_name])
         .with_context(|| format!("Failed to get Bitwarden {} template", template_name))?;
     
     if !template_output.status.success() {

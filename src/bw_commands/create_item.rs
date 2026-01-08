@@ -1,7 +1,8 @@
 use crate::bw_commands::get_template::{get_template, TemplateType};
+use crate::auth::run_bw_command;
+use crate::auth::run_bw_command_piped;
 use anyhow::{Context, Result};
 use std::io::Write;
-use std::process::Command;
 
 /// Create a secure note item in Bitwarden
 pub fn create_item(name: &str, notes: &str, folder_id: &str) -> Result<String> {
@@ -20,13 +21,8 @@ pub fn create_item(name: &str, notes: &str, folder_id: &str) -> Result<String> {
     // Convert to JSON string
     let json_str = serde_json::to_string(&template).context("Failed to serialize template")?;
 
-    // Encode the JSON
-    let mut encode_child = Command::new("bw")
-        .arg("encode")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .context("Failed to spawn bw encode")?;
+    // Encode the JSON using bw (with automatic flatpak fallback)
+    let mut encode_child = run_bw_command_piped(&["encode"])?;
 
     {
         let stdin = encode_child.stdin.as_mut().unwrap();
@@ -47,10 +43,7 @@ pub fn create_item(name: &str, notes: &str, folder_id: &str) -> Result<String> {
         String::from_utf8(encode_result.stdout).context("Failed to parse encoded data")?;
 
     // Create the item
-    let create_output = Command::new("bw")
-        .args(["create", "item", encoded_data.trim()])
-        .output()
-        .context("Failed to create Bitwarden item")?;
+    let create_output = run_bw_command(&["create", "item", encoded_data.trim()])?;
 
     if !create_output.status.success() {
         anyhow::bail!("Bitwarden CLI failed to store item");

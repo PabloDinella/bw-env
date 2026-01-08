@@ -1,7 +1,8 @@
 use anyhow::{Result, Context};
-use std::process::Command;
 use std::io::Write;
 use crate::bw_commands::get_template::{get_template, TemplateType};
+use crate::auth::run_bw_command;
+use crate::auth::run_bw_command_piped;
 
 /// Create a folder in Bitwarden with the given name
 pub fn create_folder(name: &str) -> Result<String> {
@@ -16,14 +17,9 @@ pub fn create_folder(name: &str) -> Result<String> {
     let json_str = serde_json::to_string(&template)
         .context("Failed to serialize folder template")?;
     
-    // Encode the JSON
-    let mut encode_child = Command::new("bw")
-        .arg("encode")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .context("Failed to spawn bw encode for folder")?;
-    
+    // Encode the JSON using bw (with automatic flatpak fallback)
+    let mut encode_child = run_bw_command_piped(&["encode"])?;
+
     {
         let stdin = encode_child.stdin.as_mut().unwrap();
         stdin.write_all(json_str.as_bytes())
@@ -41,10 +37,7 @@ pub fn create_folder(name: &str) -> Result<String> {
         .context("Failed to parse encoded folder data")?;
     
     // Create the folder
-    let create_output = Command::new("bw")
-        .args(["create", "folder", encoded_data.trim()])
-        .output()
-        .context("Failed to create Bitwarden folder")?;
+    let create_output = run_bw_command(&["create", "folder", encoded_data.trim()])?;
     
     if !create_output.status.success() {
         anyhow::bail!("Bitwarden CLI failed to create folder");
@@ -64,10 +57,7 @@ pub fn create_folder(name: &str) -> Result<String> {
 
 /// List all folders in Bitwarden and return them as a Vec of JSON values
 pub fn list_folders() -> Result<Vec<serde_json::Value>> {
-    let list_output = Command::new("bw")
-        .args(["list", "folders"])
-        .output()
-        .context("Failed to list Bitwarden folders")?;
+    let list_output = run_bw_command(&["list", "folders"])?;
     
     if !list_output.status.success() {
         anyhow::bail!("Failed to list Bitwarden folders");
